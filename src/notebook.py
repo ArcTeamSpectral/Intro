@@ -65,7 +65,7 @@ def start_monitoring_disk_space(interval: int = 30) -> None:
 
 
 @app.function(
-    concurrency_limit=1, volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME}, timeout=1_500
+    concurrency_limit=1, volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME}, timeout=1_500, gpu="A10G"
 )
 def run_jupyter(timeout: int):
     import os
