@@ -6,4 +6,5 @@ BASE_IMAGE = (
     .pip_install("lightning", "torchvision")
     .pip_install("transformers", "pillow")
     .pip_install("bing-image-downloader", "jupyter")
+    .pip_install("diffusers", "sentencepiece", "accelerate")
 )
