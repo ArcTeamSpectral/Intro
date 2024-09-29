@@ -5,4 +5,5 @@ BASE_IMAGE = (
     .apt_install("tree")
     .pip_install("lightning", "torchvision")
     .pip_install("transformers", "pillow")
+    .pip_install("bing-image-downloader", "jupyter")
 )
