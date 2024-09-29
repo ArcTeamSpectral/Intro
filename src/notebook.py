@@ -34,6 +34,30 @@ def seed_volume():
     TRAINING_CHECKPOINTS_VOLUME.commit()
 
 
+def start_monitoring_disk_space(interval: int = 30) -> None:
+    """Start monitoring the disk space in a separate thread."""
+    import os
+    import sys
+    import threading
+    import time
+
+    task_id = os.environ["MODAL_TASK_ID"]
+
+    def log_disk_space(interval: int) -> None:
+        while True:
+            statvfs = os.statvfs("/")
+            free_space = statvfs.f_frsize * statvfs.f_bavail
+            print(
+                f"{task_id} free disk space: {free_space / (1024 ** 3):.2f} GB",
+                file=sys.stderr,
+            )
+            time.sleep(interval)
+
+    monitoring_thread = threading.Thread(target=log_disk_space, args=(interval,))
+    monitoring_thread.daemon = True
+    monitoring_thread.start()
+
+
 # This is all that's needed to create a long-lived Jupyter server process in Modal
 # that you can access in your Browser through a secure network tunnel.
 # This can be useful when you want to interactively engage with Volume contents
@@ -47,6 +71,8 @@ def run_jupyter(timeout: int):
     import os
     import subprocess
     import time
+
+    start_monitoring_disk_space()
 
     # Print the value of HF_HOME environment variable
     print("HF_HOME:", os.environ.get("HF_HOME", "Not set"))
