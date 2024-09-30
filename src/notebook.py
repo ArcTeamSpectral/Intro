@@ -72,7 +72,6 @@ def start_monitoring_cpu_utilization(interval: int = 30) -> None:
 @app.function(
     concurrency_limit=1,
     volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME},
-    timeout=1_500,
     cpu=CPU,
     gpu=GPU,
 )
@@ -84,7 +83,6 @@ def run_jupyter(timeout: int):
     from datetime import datetime
 
     start_monitoring_cpu_utilization()
-    print("Timeout:", timeout)
 
     # Print the value of HF_HOME environment variable
     print("HF_HOME:", os.environ.get("HF_HOME", "Not set"))
@@ -122,10 +120,8 @@ def run_jupyter(timeout: int):
         }
 
         try:
-            end_time = time.time() + timeout
-            while time.time() < end_time:
+            while True:
                 time.sleep(5)
-            print(f"Reached end of {timeout} second timeout period. Exiting...")
         except KeyboardInterrupt:
             print("Exiting...")
         finally:
@@ -134,8 +130,8 @@ def run_jupyter(timeout: int):
 
 
 @app.local_entrypoint()
-def main(timeout: int = 10_000):
+def main():
     # Write some images to a volume, for demonstration purposes.
     seed_volume.remote()
     # Run the Jupyter Notebook server
-    run_jupyter.remote(timeout=timeout)
+    run_jupyter.remote()
