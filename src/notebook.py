@@ -11,6 +11,8 @@ notebook_registry = modal.Dict.from_name("notebook-registry", create_if_missing=
 
 CPU = 4.0
 GPU = None
+TIMEOUT_HOURS = 2  # max timeout is 24 hours
+TIMEOUT = TIMEOUT_HOURS * 60 * 60
 
 
 @app.function(volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME})
@@ -74,6 +76,7 @@ def start_monitoring_cpu_utilization(interval: int = 30) -> None:
     volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME},
     cpu=CPU,
     gpu=GPU,
+    timeout=TIMEOUT,
 )
 def run_jupyter():
     import os
