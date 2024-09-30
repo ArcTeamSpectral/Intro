@@ -8,25 +8,29 @@ BASE_IMAGE = (
     .pip_install("bing-image-downloader", "jupyter")
 )
 
-NOTEBOOK_IMAGE = BASE_IMAGE.apt_install(
-    "git", "wget", "curl", "htop", "vim", "tmux", "unzip", "tar", "gzip", "bzip2"
-).pip_install(
-    "numpy",
-    "pandas",
-    "matplotlib",
-    "scikit-learn",
-    "tensorflow",
-    "keras",
-    "opencv-python",
-    "scipy",
-    "seaborn",
-    "openai",
-    "tiktoken",
-    "datasets",
-    "transformers",
-    "diffusers",
-    "sentencepiece",
-    "accelerate",
+NOTEBOOK_IMAGE = (
+    BASE_IMAGE.apt_install(
+        "git", "wget", "curl", "htop", "vim", "tmux", "unzip", "tar", "gzip", "bzip2"
+    )
+    .pip_install(
+        "numpy",
+        "pandas",
+        "matplotlib",
+        "scikit-learn",
+        "tensorflow",
+        "keras",
+        "opencv-python",
+        "scipy",
+        "seaborn",
+        "openai",
+        "tiktoken",
+        "datasets",
+        "transformers",
+        "diffusers",
+        "sentencepiece",
+        "accelerate",
+    )
+    .pip_install("peft", "bitsandbytes", "trl")
 )
 
 setup_commands = [
