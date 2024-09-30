@@ -1,22 +1,19 @@
-import os
 import modal
-import signal
-import subprocess
-from .images import NOTEBOOK_IMAGE
+from .images import BASE_IMAGE
 from .volumes import TRAINING_CHECKPOINTS_VOLUME
 
-app = modal.App(
-    "notebook", image=NOTEBOOK_IMAGE.env({"HF_HOME": "/zenith/huggingface"})
-)
+app = modal.App("notebook", image=BASE_IMAGE.env({"HF_HOME": "/zenith/huggingface"}))
 
-# a password for the jupyter server
-JUPYTER_TOKEN = "friend"
+# Create a persisted queue - the data gets retained between app runs
+notebook_registry = modal.Dict.from_name("notebook-registry", create_if_missing=True)
 
 
 @app.function(volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME})
 def seed_volume():
     # Bing it!
     from bing_image_downloader import downloader
+
+    import os
 
     # Check if the sample_images directory exists and has more than 5 files
     sample_images_dir = "/zenith/sample_images/modal labs"
@@ -37,52 +34,26 @@ def seed_volume():
     TRAINING_CHECKPOINTS_VOLUME.commit()
 
 
-from modal import Dict
-from datetime import datetime
-
-notebook_registry = Dict.from_name("notebook-registry", create_if_missing=True)
-
-
-def register_notebook(notebook_id: str) -> None:
-    notebook_registry[notebook_id] = {
-        "created_at": datetime.now(),
-    }
-
-
-def need_to_delete_notebook(notebook_id: str) -> bool:
-    return notebook_id not in notebook_registry
-
-
-def delete_notebook(notebook_id: str) -> bool:
-    if notebook_id in notebook_registry:
-        del notebook_registry[notebook_id]
-        return True
-    return False
-
-
-def get_active_notebooks() -> list[str]:
-    return list(notebook_registry.keys())
-
-
-def start_monitoring_disk_space(interval: int = 30) -> None:
-    """Start monitoring the disk space in a separate thread."""
+def start_monitoring_cpu_utilization(interval: int = 30) -> None:
+    """Start monitoring the CPU utilization in a separate thread."""
+    import os
     import sys
     import threading
     import time
+    import psutil
 
     task_id = os.environ["MODAL_TASK_ID"]
 
-    def log_disk_space(interval: int) -> None:
+    def log_cpu_utilization(interval: int) -> None:
         while True:
-            statvfs = os.statvfs("/")
-            free_space = statvfs.f_frsize * statvfs.f_bavail
+            cpu_percent = psutil.cpu_percent(interval=1)
             print(
-                f"{task_id} free disk space: {free_space / (1024 ** 3):.2f} GB",
+                f"{task_id} CPU utilization: {cpu_percent:.2f}%",
                 file=sys.stderr,
             )
             time.sleep(interval)
 
-    monitoring_thread = threading.Thread(target=log_disk_space, args=(interval,))
+    monitoring_thread = threading.Thread(target=log_cpu_utilization, args=(interval,))
     monitoring_thread.daemon = True
     monitoring_thread.start()
 
@@ -93,10 +64,21 @@ def start_monitoring_disk_space(interval: int = 30) -> None:
 # without having to download it to your host computer.
 
 
-def run_jupyter_actually(q: modal.Queue):
+@app.function(
+    concurrency_limit=1,
+    volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME},
+    timeout=1_500,
+    cpu=4.0,
+)
+def run_jupyter(timeout: int):
     import os
     import subprocess
+    import time
     import secrets
+    from datetime import datetime
+
+    start_monitoring_cpu_utilization()
+    print("Timeout:", timeout)
 
     # Print the value of HF_HOME environment variable
     print("HF_HOME:", os.environ.get("HF_HOME", "Not set"))
@@ -113,11 +95,6 @@ def run_jupyter_actually(q: modal.Queue):
     with modal.forward(jupyter_port) as tunnel:
         token = secrets.token_urlsafe(13)
         url = tunnel.url + "/?token=" + token
-        print(f"Starting Jupyter at {url}")
-        q.put(url)
-
-        register_notebook(url)
-
         jupyter_process = subprocess.Popen(
             [
                 "jupyter",
@@ -133,145 +110,26 @@ def run_jupyter_actually(q: modal.Queue):
             env={**os.environ, "JUPYTER_TOKEN": token},
         )
 
-        import time
-
-        while True:
-            time.sleep(1)
-            print("Checking if need to delete notebook at", url)
-            if need_to_delete_notebook(url):
-                print(f"Deleting Jupyter process at {url}...")
-                jupyter_process.terminate()  # Terminate the process
-                jupyter_process.wait()  # Wait for the process to finish
-                print(f"Jupyter process at {url} has been terminated.")
-                return  # Exit the function to prevent restart
-
-
-TIMEOUT = 3000  # Notebooks close after 50 minutes
-
-
-@app.function(
-    concurrency_limit=1,
-    volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME},
-    timeout=TIMEOUT,
-)
-def cpu_notebook(q: modal.Queue):
-    return run_jupyter_actually(q)
-
-
-@app.function(
-    concurrency_limit=1,
-    volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME},
-    timeout=TIMEOUT,
-    gpu="t4",
-)
-def gpu_notebook(q: modal.Queue):
-    return run_jupyter_actually(q)
-
-
-@app.function(
-    concurrency_limit=1,
-    volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME},
-    timeout=TIMEOUT,
-    gpu="a10g",
-)
-def a10g_notebook(q: modal.Queue):
-    return run_jupyter_actually(q)
-
-
-@app.function(
-    concurrency_limit=1,
-    volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME},
-    timeout=TIMEOUT,
-    gpu="a100",
-)
-def a100_notebook(q: modal.Queue):
-    return run_jupyter_actually(q)
-
-
-from fastapi import HTTPException, Depends, Request
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-
-auth_scheme = HTTPBearer()
-
-
-@app.function(secrets=[modal.Secret.from_name("my-custom-secret")])
-@modal.web_endpoint(method="POST")
-async def stop(
-    request: Request, token: HTTPAuthorizationCredentials = Depends(auth_scheme)
-):
-    print(os.environ["SECRET_PASSPHRASE_AUTH_TOKEN"])
-    print(token.credentials)
-    is_valid = token.credentials == os.environ["SECRET_PASSPHRASE_AUTH_TOKEN"]
-
-    if is_valid:
-        # Read the notebook_url from the request body
-        request_data = await request.json()
-        notebook_url = request_data.get("notebook_url")
-
-        if not notebook_url:
-            raise HTTPException(400, "notebook_url is required")
-
-        print(f"Attempting to delete notebook at URL: {notebook_url}")
-
-        # Call the function to delete the notebook
-        deleted = delete_notebook(notebook_url)
-
-        if deleted:
-            return {
-                "message": f"Notebook at {notebook_url} is marked for deletion",
-                "code": 0,
-            }
-        else:
-            raise {"message": f"No active notebook found at {notebook_url}", "code": 1}
-    else:
-        raise HTTPException(401, "Not authenticated")
-
-
-@app.function(secrets=[modal.Secret.from_name("my-custom-secret")])
-@modal.web_endpoint(method="POST")
-async def start(
-    request: Request, token: HTTPAuthorizationCredentials = Depends(auth_scheme)
-):
-    print(os.environ["SECRET_PASSPHRASE_AUTH_TOKEN"])
-    print(token.credentials)
-    is_valid = token.credentials == os.environ["SECRET_PASSPHRASE_AUTH_TOKEN"]
-
-    if is_valid:
-        # Read the gpu_type from the request body
-        request_data = await request.json()
-        gpu_type = request_data.get("gpu_type")
-        print("Starting notebook with gpu_type:", gpu_type)
-
-        with modal.Queue.ephemeral() as q:
-            if gpu_type is None:
-                cpu_notebook.spawn(q)
-            elif gpu_type == "t4":
-                gpu_notebook.spawn(q)
-            elif gpu_type == "a100":
-                a100_notebook.spawn(q)
-            elif gpu_type == "a10g":
-                a10g_notebook.spawn(q)
-
-            url = q.get()
-            print("Got URL:", url)
-            return {"url": url, "gpu_type": gpu_type}
-
-    else:
-        raise HTTPException(401, "Not authenticated")
-
-
-@app.function()
-@modal.web_endpoint(method="GET")
-def index():
-    # Get all active notebook URLs
-    active_notebooks = get_active_notebooks()
-
-    if active_notebooks:
-        return {
-            "message": "Here are all active notebook URLs:",
-            "notebooks": active_notebooks,
+        print(f"Jupyter available at => {url}")
+        notebook_registry[url] = {
+            "created_at": datetime.now().isoformat(),
         }
-    else:
-        return {
-            "message": "No active notebooks found. To start a notebook, make a POST request to this endpoint."
-        }
+
+        try:
+            end_time = time.time() + timeout
+            while time.time() < end_time:
+                time.sleep(5)
+            print(f"Reached end of {timeout} second timeout period. Exiting...")
+        except KeyboardInterrupt:
+            print("Exiting...")
+        finally:
+            jupyter_process.kill()
+            del notebook_registry[url]
+
+
+@app.local_entrypoint()
+def main(timeout: int = 10_000):
+    # Write some images to a volume, for demonstration purposes.
+    seed_volume.remote()
+    # Run the Jupyter Notebook server
+    run_jupyter.remote(timeout=timeout)

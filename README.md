@@ -28,6 +28,15 @@ modal container list
 modal container stop <container-id>
 ```
 
+## How it works
+
+We operate a simple HTTP server that redirects to the target URL.
+You can change the target URL with a POST request:
+```
+curl -X POST -d "url=https://google.com" http://localhost:33030/change
+```
+
+This runs in the background and is used to redirect the notebook to the target URL.
 
 
 ## Self Deploy
