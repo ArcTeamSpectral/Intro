@@ -1,5 +1,10 @@
 const startNotebook = async (gpuType) => {
   try {
+    const startTime = Date.now();
+    const updateInterval = setInterval(() => {
+      const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+      console.log(`Starting notebook (${elapsedSeconds}s)...`);
+    }, 3000);
     const response = await fetch('https://mwufi--notebook-start.modal.run', {
       method: 'POST',
       headers: {
@@ -15,6 +20,7 @@ const startNotebook = async (gpuType) => {
 
     const data = await response.json();
     console.log('Notebook started successfully:', data);
+    clearInterval(updateInterval);
     return data;
   } catch (error) {
     console.error('Error starting notebook:', error.message);

@@ -146,10 +146,13 @@ def run_jupyter_actually(q: modal.Queue):
                 return  # Exit the function to prevent restart
 
 
+TIMEOUT = 3000  # Notebooks close after 50 minutes
+
+
 @app.function(
     concurrency_limit=1,
     volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME},
-    timeout=900,
+    timeout=TIMEOUT,
 )
 def cpu_notebook(q: modal.Queue):
     return run_jupyter_actually(q)
@@ -158,7 +161,7 @@ def cpu_notebook(q: modal.Queue):
 @app.function(
     concurrency_limit=1,
     volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME},
-    timeout=900,
+    timeout=TIMEOUT,
     gpu="t4",
 )
 def gpu_notebook(q: modal.Queue):
@@ -168,7 +171,7 @@ def gpu_notebook(q: modal.Queue):
 @app.function(
     concurrency_limit=1,
     volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME},
-    timeout=900,
+    timeout=TIMEOUT,
     gpu="a10g",
 )
 def a10g_notebook(q: modal.Queue):
@@ -178,7 +181,7 @@ def a10g_notebook(q: modal.Queue):
 @app.function(
     concurrency_limit=1,
     volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME},
-    timeout=900,
+    timeout=TIMEOUT,
     gpu="a100",
 )
 def a100_notebook(q: modal.Queue):
