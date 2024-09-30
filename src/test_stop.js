@@ -1,6 +1,6 @@
 const deleteNotebook = async (url) => {
   try {
-    const response = await fetch('https://mwufi--notebook-stop-dev.modal.run', {
+    const response = await fetch('https://mwufi--notebook-stop.modal.run', {
       method: 'POST',
       headers: {
         'Authorization': 'Bearer testingfood',

@@ -1,6 +1,6 @@
 const startNotebook = async () => {
   try {
-    const response = await fetch('https://mwufi--notebook-start-dev.modal.run', {
+    const response = await fetch('https://mwufi--notebook-start.modal.run', {
       method: 'POST',
       headers: {
         'Authorization': 'Bearer testingfood',

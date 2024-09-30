@@ -60,6 +60,10 @@ def delete_notebook(notebook_id: str) -> bool:
     return False
 
 
+def get_active_notebooks() -> list[str]:
+    return list(notebook_registry.keys())
+
+
 def start_monitoring_disk_space(interval: int = 30) -> None:
     """Start monitoring the disk space in a separate thread."""
     import sys
@@ -256,4 +260,15 @@ async def start(
 @app.function()
 @modal.web_endpoint(method="GET")
 def index():
-    return {"message": "To start a notebook, make a POST request to this endpoint."}
+    # Get all active notebook URLs
+    active_notebooks = get_active_notebooks()
+
+    if active_notebooks:
+        return {
+            "message": "Here are all active notebook URLs:",
+            "notebooks": active_notebooks,
+        }
+    else:
+        return {
+            "message": "No active notebooks found. To start a notebook, make a POST request to this endpoint."
+        }
