@@ -1,8 +1,11 @@
+import os
 import modal
-from .images import BASE_IMAGE
+from .images import NOTEBOOK_IMAGE
 from .volumes import TRAINING_CHECKPOINTS_VOLUME
 
-app = modal.App("notebook", image=BASE_IMAGE.env({"HF_HOME": "/zenith/huggingface"}))
+app = modal.App(
+    "notebook", image=NOTEBOOK_IMAGE.env({"HF_HOME": "/zenith/huggingface"})
+)
 
 # a password for the jupyter server
 JUPYTER_TOKEN = "friend"
@@ -12,8 +15,6 @@ JUPYTER_TOKEN = "friend"
 def seed_volume():
     # Bing it!
     from bing_image_downloader import downloader
-
-    import os
 
     # Check if the sample_images directory exists and has more than 5 files
     sample_images_dir = "/zenith/sample_images/modal labs"
@@ -36,7 +37,6 @@ def seed_volume():
 
 def start_monitoring_disk_space(interval: int = 30) -> None:
     """Start monitoring the disk space in a separate thread."""
-    import os
     import sys
     import threading
     import time
@@ -65,14 +65,16 @@ def start_monitoring_disk_space(interval: int = 30) -> None:
 
 
 @app.function(
-    concurrency_limit=1, volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME}, timeout=1_500, gpu="A10G"
+    concurrency_limit=1,
+    volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME},
+    timeout=900,  # 15 minutes
+    gpu="A10G",
 )
-def run_jupyter(timeout: int):
+def run_jupyter(q: modal.Queue):
     import os
     import subprocess
-    import time
-
-    start_monitoring_disk_space()
+    import secrets
+    import threading
 
     # Print the value of HF_HOME environment variable
     print("HF_HOME:", os.environ.get("HF_HOME", "Not set"))
@@ -87,7 +89,12 @@ def run_jupyter(timeout: int):
 
     jupyter_port = 8888
     with modal.forward(jupyter_port) as tunnel:
-        jupyter_process = subprocess.Popen(
+        token = secrets.token_urlsafe(13)
+        url = tunnel.url + "/?token=" + token
+        print(f"Starting Jupyter at {url}")
+        q.put(url)
+
+        subprocess.run(
             [
                 "jupyter",
                 "notebook",
@@ -99,25 +106,44 @@ def run_jupyter(timeout: int):
                 "--NotebookApp.allow_origin='*'",
                 "--NotebookApp.allow_remote_access=1",
             ],
-            env={**os.environ, "JUPYTER_TOKEN": JUPYTER_TOKEN},
+            env={**os.environ, "JUPYTER_TOKEN": token},
         )
 
-        print(f"Jupyter available at => {tunnel.url}")
 
-        try:
-            end_time = time.time() + timeout
-            while time.time() < end_time:
-                time.sleep(5)
-            print(f"Reached end of {timeout} second timeout period. Exiting...")
-        except KeyboardInterrupt:
-            print("Exiting...")
-        finally:
-            jupyter_process.kill()
+from fastapi import HTTPException, Depends, Request
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+auth_scheme = HTTPBearer()
+
+
+@app.function(secrets=[modal.Secret.from_name("my-custom-secret")])
+@modal.web_endpoint(method="POST")
+def start_notebook(
+    request: Request, token: HTTPAuthorizationCredentials = Depends(auth_scheme)
+):
+    print(os.environ["SECRET_PASSPHRASE_AUTH_TOKEN"])
+    is_valid = token.credentials != os.environ["SECRET_PASSPHRASE_AUTH_TOKEN"]
+
+    if is_valid:
+        with modal.Queue.ephemeral() as q:
+            run_jupyter.spawn(q)
+            url = q.get()
+            print("Got URL:", url)
+            return {"url": url}
+
+    else:
+        raise HTTPException(401, "Not authenticated")
+
+
+@app.function()
+@modal.web_endpoint(method="GET")
+def get_start_notebook():
+    return {"message": "To start a notebook, make a POST request to this endpoint."}
 
 
 @app.local_entrypoint()
-def main(timeout: int = 10_000):
+def main():
     # Write some images to a volume, for demonstration purposes.
     seed_volume.remote()
     # Run the Jupyter Notebook server
-    run_jupyter.remote(timeout=timeout)
+    run_jupyter.remote()

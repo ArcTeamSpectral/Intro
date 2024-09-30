@@ -6,5 +6,31 @@ BASE_IMAGE = (
     .pip_install("lightning", "torchvision")
     .pip_install("transformers", "pillow")
     .pip_install("bing-image-downloader", "jupyter")
-    .pip_install("diffusers", "sentencepiece", "accelerate")
 )
+
+NOTEBOOK_IMAGE = BASE_IMAGE.apt_install(
+    "git", "wget", "curl", "htop", "vim", "tmux", "unzip", "tar", "gzip", "bzip2"
+).pip_install(
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "scikit-learn",
+    "tensorflow",
+    "keras",
+    "opencv-python",
+    "scipy",
+    "seaborn",
+    "openai",
+    "tiktoken",
+    "datasets",
+    "transformers",
+    "diffusers",
+    "sentencepiece",
+    "accelerate",
+)
+
+setup_commands = [
+    "git clone https://github.com/fchollet/ARC-AGI.git",
+    "echo 'ready to go!'",
+]
+ARC_IMAGE = NOTEBOOK_IMAGE.run_commands(setup_commands)
