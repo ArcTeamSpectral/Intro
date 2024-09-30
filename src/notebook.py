@@ -75,7 +75,7 @@ def start_monitoring_cpu_utilization(interval: int = 30) -> None:
     cpu=CPU,
     gpu=GPU,
 )
-def run_jupyter(timeout: int):
+def run_jupyter():
     import os
     import subprocess
     import time
