@@ -64,17 +64,10 @@ def start_monitoring_disk_space(interval: int = 30) -> None:
 # without having to download it to your host computer.
 
 
-@app.function(
-    concurrency_limit=1,
-    volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME},
-    timeout=900,  # 15 minutes
-    gpu="A10G",
-)
-def run_jupyter(q: modal.Queue):
+def run_jupyter_actually(q: modal.Queue):
     import os
     import subprocess
     import secrets
-    import threading
 
     # Print the value of HF_HOME environment variable
     print("HF_HOME:", os.environ.get("HF_HOME", "Not set"))
@@ -110,6 +103,45 @@ def run_jupyter(q: modal.Queue):
         )
 
 
+@app.function(
+    concurrency_limit=1,
+    volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME},
+    timeout=900,
+)
+def cpu_notebook(q: modal.Queue):
+    return run_jupyter_actually(q)
+
+
+@app.function(
+    concurrency_limit=1,
+    volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME},
+    timeout=900,
+    gpu="t4",
+)
+def gpu_notebook(q: modal.Queue):
+    return run_jupyter_actually(q)
+
+
+@app.function(
+    concurrency_limit=1,
+    volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME},
+    timeout=900,
+    gpu="a10g",
+)
+def a10g_notebook(q: modal.Queue):
+    return run_jupyter_actually(q)
+
+
+@app.function(
+    concurrency_limit=1,
+    volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME},
+    timeout=900,
+    gpu="a100",
+)
+def a100_notebook(q: modal.Queue):
+    return run_jupyter_actually(q)
+
+
 from fastapi import HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
@@ -118,18 +150,32 @@ auth_scheme = HTTPBearer()
 
 @app.function(secrets=[modal.Secret.from_name("my-custom-secret")])
 @modal.web_endpoint(method="POST")
-def start_notebook(
+async def start(
     request: Request, token: HTTPAuthorizationCredentials = Depends(auth_scheme)
 ):
     print(os.environ["SECRET_PASSPHRASE_AUTH_TOKEN"])
-    is_valid = token.credentials != os.environ["SECRET_PASSPHRASE_AUTH_TOKEN"]
+    print(token.credentials)
+    is_valid = token.credentials == os.environ["SECRET_PASSPHRASE_AUTH_TOKEN"]
 
     if is_valid:
+        # Read the gpu_type from the request body
+        request_data = await request.json()
+        gpu_type = request_data.get("gpu_type")
+        print("Starting notebook with gpu_type:", gpu_type)
+
         with modal.Queue.ephemeral() as q:
-            run_jupyter.spawn(q)
+            if gpu_type is None:
+                cpu_notebook.spawn(q)
+            elif gpu_type == "t4":
+                gpu_notebook.spawn(q)
+            elif gpu_type == "a100":
+                a100_notebook.spawn(q)
+            elif gpu_type == "a10g":
+                a10g_notebook.spawn(q)
+
             url = q.get()
             print("Got URL:", url)
-            return {"url": url}
+            return {"url": url, "gpu_type": gpu_type}
 
     else:
         raise HTTPException(401, "Not authenticated")
@@ -137,13 +183,5 @@ def start_notebook(
 
 @app.function()
 @modal.web_endpoint(method="GET")
-def get_start_notebook():
+def index():
     return {"message": "To start a notebook, make a POST request to this endpoint."}
-
-
-@app.local_entrypoint()
-def main():
-    # Write some images to a volume, for demonstration purposes.
-    seed_volume.remote()
-    # Run the Jupyter Notebook server
-    run_jupyter.remote()
