@@ -3,6 +3,7 @@
 This repo contains the code for the Zenith development environment.
 
 ## Quick Start (using my modal resources)
+
 To get started, set the `TOKEN` environment variable to your Modal token:
 
 ```bash
@@ -17,6 +18,17 @@ make t4
 make a100
 make a10g
 ```
+
+### Cleanup
+
+To stop the notebook and clean up the resources, run:
+
+```bash
+modal container list
+modal container stop <container-id>
+```
+
+
 
 ## Self Deploy
 

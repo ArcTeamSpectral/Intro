@@ -7,6 +7,7 @@ cpu:
 	curl -X POST https://mwufi--notebook-start.modal.run \
 		-H "Authorization: Bearer $(TOKEN)" \
 		-H "Content-Type: application/json" \
+		-d '{"gpu_type": null}'
 
 t4:
 	@if [ -z "$(TOKEN)" ]; then \

@@ -1,5 +1,7 @@
 import os
 import modal
+import signal
+import subprocess
 from .images import NOTEBOOK_IMAGE
 from .volumes import TRAINING_CHECKPOINTS_VOLUME
 
@@ -33,6 +35,29 @@ def seed_volume():
         verbose=True,
     )
     TRAINING_CHECKPOINTS_VOLUME.commit()
+
+
+from modal import Dict
+from datetime import datetime
+
+notebook_registry = Dict.from_name("notebook-registry", create_if_missing=True)
+
+
+def register_notebook(notebook_id: str) -> None:
+    notebook_registry[notebook_id] = {
+        "created_at": datetime.now(),
+    }
+
+
+def need_to_delete_notebook(notebook_id: str) -> bool:
+    return notebook_id not in notebook_registry
+
+
+def delete_notebook(notebook_id: str) -> bool:
+    if notebook_id in notebook_registry:
+        del notebook_registry[notebook_id]
+        return True
+    return False
 
 
 def start_monitoring_disk_space(interval: int = 30) -> None:
@@ -87,7 +112,9 @@ def run_jupyter_actually(q: modal.Queue):
         print(f"Starting Jupyter at {url}")
         q.put(url)
 
-        subprocess.run(
+        register_notebook(url)
+
+        jupyter_process = subprocess.Popen(
             [
                 "jupyter",
                 "notebook",
@@ -101,6 +128,18 @@ def run_jupyter_actually(q: modal.Queue):
             ],
             env={**os.environ, "JUPYTER_TOKEN": token},
         )
+
+        import time
+
+        while True:
+            time.sleep(1)
+            print("Checking if need to delete notebook at", url)
+            if need_to_delete_notebook(url):
+                print(f"Deleting Jupyter process at {url}...")
+                jupyter_process.terminate()  # Terminate the process
+                jupyter_process.wait()  # Wait for the process to finish
+                print(f"Jupyter process at {url} has been terminated.")
+                return  # Exit the function to prevent restart
 
 
 @app.function(
@@ -146,6 +185,39 @@ from fastapi import HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 auth_scheme = HTTPBearer()
+
+
+@app.function(secrets=[modal.Secret.from_name("my-custom-secret")])
+@modal.web_endpoint(method="POST")
+async def stop(
+    request: Request, token: HTTPAuthorizationCredentials = Depends(auth_scheme)
+):
+    print(os.environ["SECRET_PASSPHRASE_AUTH_TOKEN"])
+    print(token.credentials)
+    is_valid = token.credentials == os.environ["SECRET_PASSPHRASE_AUTH_TOKEN"]
+
+    if is_valid:
+        # Read the notebook_url from the request body
+        request_data = await request.json()
+        notebook_url = request_data.get("notebook_url")
+
+        if not notebook_url:
+            raise HTTPException(400, "notebook_url is required")
+
+        print(f"Attempting to delete notebook at URL: {notebook_url}")
+
+        # Call the function to delete the notebook
+        deleted = delete_notebook(notebook_url)
+
+        if deleted:
+            return {
+                "message": f"Notebook at {notebook_url} is marked for deletion",
+                "code": 0,
+            }
+        else:
+            raise {"message": f"No active notebook found at {notebook_url}", "code": 1}
+    else:
+        raise HTTPException(401, "Not authenticated")
 
 
 @app.function(secrets=[modal.Secret.from_name("my-custom-secret")])
