@@ -1,11 +1,16 @@
 import modal
-from .images import BASE_IMAGE
+from .images import NOTEBOOK_IMAGE
 from .volumes import TRAINING_CHECKPOINTS_VOLUME
 
-app = modal.App("notebook", image=BASE_IMAGE.env({"HF_HOME": "/zenith/huggingface"}))
+app = modal.App(
+    "notebook", image=NOTEBOOK_IMAGE.env({"HF_HOME": "/zenith/huggingface"})
+)
 
 # Create a persisted queue - the data gets retained between app runs
 notebook_registry = modal.Dict.from_name("notebook-registry", create_if_missing=True)
+
+CPU = 4.0
+GPU = None
 
 
 @app.function(volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME})
@@ -68,7 +73,8 @@ def start_monitoring_cpu_utilization(interval: int = 30) -> None:
     concurrency_limit=1,
     volumes={"/zenith": TRAINING_CHECKPOINTS_VOLUME},
     timeout=1_500,
-    cpu=4.0,
+    cpu=CPU,
+    gpu=GPU,
 )
 def run_jupyter(timeout: int):
     import os

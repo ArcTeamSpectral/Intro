@@ -31,6 +31,7 @@ NOTEBOOK_IMAGE = (
         "accelerate",
     )
     .pip_install("peft", "bitsandbytes", "trl")
+    .pip_install("plotly", "wandb")
 )
 
 setup_commands = [
