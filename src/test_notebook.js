@@ -1,4 +1,4 @@
-const startNotebook = async () => {
+const startNotebook = async (gpuType) => {
   try {
     const response = await fetch('https://mwufi--notebook-start.modal.run', {
       method: 'POST',
@@ -6,7 +6,7 @@ const startNotebook = async () => {
         'Authorization': 'Bearer testingfood',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({})
+      body: JSON.stringify({ gpu_type: gpuType })
     });
 
     if (!response.ok) {
@@ -23,7 +23,13 @@ const startNotebook = async () => {
 };
 
 // Usage
-startNotebook()
+const gpuType = process.argv[2];
+if (!gpuType) {
+  console.error('Please provide a GPU type as an argument.');
+  process.exit(1);
+}
+
+startNotebook(gpuType)
   .then(result => {
     console.log('Notebook URL:', result.url);
     console.log('GPU Type:', result.gpu_type);
@@ -31,4 +37,3 @@ startNotebook()
   .catch(error => {
     console.error('Failed to start notebook:', error);
   });
-
